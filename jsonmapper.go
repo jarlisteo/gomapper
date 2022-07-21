@@ -7,73 +7,86 @@ import (
 
 type JsonMap map[string]string
 
-type GoMapper struct {
-	Ref  JsonMap
-	Data string
-	Base string
-}
-
-func New(ref JsonMap, data string) *GoMapper {
-	return &GoMapper{Ref: ref, Data: data}
-}
-
-func (mapper *GoMapper) Map(object any) {
-	var FinalMap []any
-
-	mapper.setBase()
-
-	//IF IS ARRAY DO MAPPING FOR EACH SUBGROUP
-	if jsonIsArray(mapper.Data) {
-		var iterableMap []any
-		_ = json.Unmarshal([]byte(mapper.Data), &iterableMap)
-		for _, subMap := range iterableMap {
-			_ = MapValues(&subMap, mapper.Ref)
-			FinalMap = append(FinalMap, subMap)
-		}
+func Map(refObject any, refMap JsonMap, input string) {
+	if invalidInput(input) {
+		return
 	}
 
-	//CONVERT TO INPUT OBJECT
-	str, _ := json.Marshal(FinalMap)
-	_ = json.Unmarshal(str, &object)
-}
+	if refMapHaveBase(refMap) {
+		input = goMainMap(input, refMap["base"])
+	}
 
-func (mapper *GoMapper) GoMainMap() {
-	var mainObjects []any
-	var baseMap map[string]any
-	_ = json.Unmarshal([]byte(mapper.Data), &baseMap)
-	if jsonIsArray(mapper.Data) {
-		mainObjects = append(mainObjects, baseMap[mapper.Base])
+	if jsonIsArray(input) {
+		input = mapArray(input, refMap)
 	} else {
-		mainObjects = baseMap[mapper.Base].([]any)
+		input = mapSingle(input, refMap)
 	}
-	str, _ := json.Marshal(mainObjects)
-	mapper.Data = string(str)
+
+	//OUT FINAL OBJECT
+	_ = json.Unmarshal([]byte(input), &refObject)
 }
 
-func MapValues(Map *any, ref JsonMap) error {
-	mapCopy := *Map
-	newMap := make(map[string]any)
+func invalidInput(input string) bool {
+	if input == "" || input == "[]" {
+		return true
+	}
+	return false
+}
+
+func refMapHaveBase(refMap JsonMap) bool {
+	if _, ok := refMap["base"]; ok {
+		return true
+	}
+	return false
+}
+
+func mapArray(input string, refMap JsonMap) string {
+	var finalMap []any
+	var iterableMap []any
+	_ = json.Unmarshal([]byte(input), &iterableMap)
+	for _, subMap := range iterableMap {
+		mapValues(subMap.(map[string]any), refMap)
+		finalMap = append(finalMap, subMap)
+	}
+	str, _ := json.Marshal(finalMap)
+	return string(str)
+}
+
+func mapSingle(input string, refMap JsonMap) string {
+	var FinalMap map[string]any
+	_ = json.Unmarshal([]byte(input), &FinalMap)
+	mapValues(FinalMap, refMap)
+	str, _ := json.Marshal(FinalMap)
+	return string(str)
+}
+
+func goMainMap(jsonInput string, base string) string {
+	var str []byte
+	var baseMap map[string]any
+	_ = json.Unmarshal([]byte(jsonInput), &baseMap)
+	if jsonIsArray(jsonInput) {
+		var mainObjects []any
+		mainObjects = append(mainObjects, baseMap[base])
+		str, _ = json.Marshal(mainObjects)
+	} else {
+		str, _ = json.Marshal(baseMap[base])
+	}
+	return string(str)
+}
+
+func mapValues(inputMap map[string]any, ref JsonMap) {
 	for value, key := range ref {
-		newMap[value] = getValue(mapCopy, key)
+		inputMap[value] = getValue(inputMap, key)
 	}
-	*Map = newMap
-	return nil
 }
 
-func getValue(i any, v string) any {
+func getValue(inputMap map[string]any, v string) any {
 	stringArray := strings.Split(v, ".")
-	result := i.(map[string]any)[stringArray[0]]
-	switch result.(type) {
+	result := inputMap[stringArray[0]]
+	switch r := result.(type) {
 	case map[string]any:
 		newString := append(stringArray[:0], stringArray[1:]...)
-		return getValue(result, strings.Join(newString, "."))
+		return getValue(r, strings.Join(newString, "."))
 	}
 	return result
-}
-
-func (mapper *GoMapper) setBase() {
-	if base, ok := mapper.Ref["base"]; ok {
-		mapper.Base = base
-		mapper.GoMainMap()
-	}
 }
